@@ -499,7 +499,7 @@ mu_revenue_growth_percent = st.slider(
 )
 
 sigma_revenue_growth_percent = st.slider(
-    "Your expected Standard Deviation",
+    "Your expected Standard Deviation of revenue growth",
     min_value=0.1,
     max_value=1/3 * mu_revenue_growth_percent, #we set for all STD the max to 1/3 mu because 3*STD captures 99.7% of the curve so 99.87% of draws will be positive, ensuring that we get resonable values for growth and wacc
     value=1/6 * mu_revenue_growth_percent,
@@ -537,7 +537,7 @@ mu_wacc_percent = st.slider(
 
 #get user input for op margin via slider 
 sigma_wacc_percent = st.slider(
-    "Your expected Standard Deviation",
+    "Your expected Standard Deviation of WACC",
     min_value=0.1,
     max_value=1/3*mu_wacc_percent,
     value=1/6*mu_wacc_percent,
