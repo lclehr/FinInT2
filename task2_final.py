@@ -247,7 +247,7 @@ def plot_quant(values, dataframe, title): #Values should be a pd.Series, indexed
     years = list(range(2015,2025+10))
     quantile_levels = [0.1, 0.25, 0.5, 0.75, 0.9]
     quantiles = dataframe.quantile(quantile_levels)
-    # Farbverlauf: rot (niedrig) → grün (hoch)
+    
     cmap = plt.cm.get_cmap('RdYlGn')  # nicht "_r"!
     colors = cmap(np.linspace(0.0, 1.0, len(quantile_levels) - 1))
     selected_years = years[10:]
@@ -255,6 +255,7 @@ def plot_quant(values, dataframe, title): #Values should be a pd.Series, indexed
     fig, ax = plt.subplots()
     bar_colors = ['green'] * (len(values) - highlight_count) + ['gray'] * highlight_count
     ax.bar(years, values, color=bar_colors, alpha=1)
+    
     for i in range(len(quantile_levels) - 1):
         lower = quantiles.loc[quantile_levels[i], selected_years]
         upper = quantiles.loc[quantile_levels[i + 1], selected_years]
@@ -267,6 +268,7 @@ def plot_quant(values, dataframe, title): #Values should be a pd.Series, indexed
         ax.fill_between(selected_years, lower, upper,
                         color=colors[i], alpha=0.7,
                         label=f'{int(quantile_levels[i]*100)}%-{int(quantile_levels[i+1]*100)}%')
+        
     if all(isinstance(x, (int, float)) for x in years):
         # Nur für numerische Jahreswerte
         xticks = [x for x in years if int(x) % 5 == 0]
@@ -298,6 +300,7 @@ def plot_quant(values, dataframe, title): #Values should be a pd.Series, indexed
 
 ###############################################################
 
+# initialzing lists to store drawn samples outside the simulation from the different distributions
 sample_wacc = []
 sample_wacc_t = []
 sample_opm = []
@@ -305,39 +308,61 @@ sample_rev = []
 sample_rev_t = []
 value_list = []
 sample_stc= []
+
+#initializing data frames for use later on
 columns = list(range(2025, 2035)) 
 revenue_df = pd.DataFrame(columns=columns)
 reinvestment_df = pd.DataFrame(columns=columns)
 fcff_df = pd.DataFrame(columns = columns)
 ebit_df = pd.DataFrame(columns = columns)
 roic_df = pd.DataFrame(columns = columns)
+
+#defining the function that does the monte carlo share value simulation to call it later 
 def monte_carlo_EV():
-    
+
+    #we let the user pick how many iterations the simulation should be run; initial value set to 1000
     for j in range(int(draws)):
-        #Normal Distribution
+        
+        #Drawing from Normal Distribution for TV Period ROIC and WACC, with user input parameters (to see how user input works jump down to section "Build Site with Streamlit"
         drawn_roic_end = np.random.normal(loc=mu_roic, scale=sigma_roic, size=1)[0]
         drawn_wacc = np.random.normal(loc=mu_wacc, scale=sigma_wacc, size=1)[0]
         
-        #LogNormal Distribution
+        #Drawing from LogNormal Distribution for revenue growth with user input parameters (to see how user input works jump down to section "Build Site with Streamlit"
         drawn_revenue_growth = np.random.lognormal(mean=mu_revenue_growth, sigma=sigma_revenue_growth, size=1)[0]
-        
+
+        # Coc of TV Period > growth TV Period; but both need to be smaller then the lower value of CoC and gorwth for the first ten years to avoid getting absurd negative company values
         min_lim = min(drawn_wacc, drawn_revenue_growth)
         
-        #Triangle Distribution
+        #Drawing from Triangle Distributions for Op Margin and Sales to Capital, user can Set mode and range for both (within limits to avoid absurd results)
         drawn_op_margin = np.random.triangular(left=l_limit, mode=mode_op_margin, right=u_limit, size=1)[0]
-        drawn_stc = np.random.triangular(left=current_company["Industry STC"]-0.1, mode=s_to_c, right=current_company["Industry STC"]+0.1, size=1)[0]
-        
-        drawn_wacc_end = np.random.triangular(left=0.01, mode=(0.01+max(min_lim, 0.011))/2, right=max(min_lim, 0.011), size=1)[0]
+        drawn_stc = np.random.triangular(left=current_company["Industry STC"]-0.1, mode=s_to_c, right=current_company["Industry STC"]+0.1, size=1)[0] #using Insdustry STC accd to Damodaran 2025, since there is no distribution given we use a small range to avoid absurdly negative company values, as the TV is quite sensitive to too low STC ratios
+
+        #Drawing from Triangle Distributions for TV Period WACC and TV Period growth
+
+        #left set to 1% as a lowest possible CoC (though this is already a very low value), max value is limited by the smaller value of initial CoC and growth
+        #however, if the user sets this below 1% we need to take at leat 1.1% in order to still have a viable distribution. 
+        #mode is then just the half way point, as we assume a more or less symmetric distribution
+        drawn_wacc_end = np.random.triangular(left=0.01, mode=(0.01+max(min_lim, 0.011))/2, right=max(min_lim, 0.011), size=1)[0] 
+
+        #the growth for TV period needs to be bigger or equal to 0; even though in theory negative growth for TV period could be possible, we make the simplifying assumption that for MSFT and NVDA this will not be the case. 
+        #the right value is set to the WACC of TV period, as the grwoth can not be bigger then TV WACC to avoid absurdly negative company values in perpertuity
         drawn_revenue_end = np.random.triangular(left=0, mode=drawn_wacc_end/2, right=drawn_wacc_end, size=1)[0]
         
-        
+        #we append all the drawn samples to a list to plot them later
         sample_wacc.append(drawn_wacc)
         sample_wacc_t.append(drawn_wacc_end)
         sample_opm.append(drawn_op_margin)
         sample_rev.append(drawn_revenue_growth)
         sample_rev_t.append(drawn_revenue_end)
         sample_stc.append(drawn_stc)
-    
+
+        ########################################################
+
+        #Share Value calculation -> see Task2.1 for detailed comments on this part as it is the same (https://github.com/lclehr/FinInT1/blob/main/FCFFapp.py)
+        
+        ########################################################
+
+            
         #Revenue Simulation
         revenue_growth_start = drawn_revenue_growth
         revenue_growth_end = drawn_revenue_end
@@ -461,6 +486,8 @@ def monte_carlo_EV():
 
 ###############################################################
 
+#this is used to return the quantiles from a passed iterable 
+
 def get_quantiles_df():
     values_series = pd.Series(value_list)
     quantiles = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
@@ -478,6 +505,7 @@ def get_quantiles_df():
 st.header("Model Input")
 #select company via streamlit 
 select_company = st.radio("Select a company", list(companies.keys())) 
+
 #set current company variable to selected
 current_company = companies[select_company]
 
@@ -502,7 +530,7 @@ sigma_revenue_growth_percent = st.slider(
     "Your expected Standard Deviation of revenue growth",
     min_value=0.1,
     max_value=1/3 * mu_revenue_growth_percent, #we set for all STD the max to 1/3 mu because 3*STD captures 99.7% of the curve so 99.87% of draws will be positive, ensuring that we get resonable values for growth and wacc
-    value=1/6 * mu_revenue_growth_percent,
+    value=1/6 * mu_revenue_growth_percent, #set to half of max to make sure it is within the bounds to avoid value errors
     step=0.1,
     format="%.1f%%"
 )
@@ -510,11 +538,12 @@ st.write("")
 st.write("")
 st.write("")
 st.write("The terminal value of revenue growth is being drawn from a triangular distribution")
+
 mu_revenue_end_percent = st.slider(
     "Your expected Revenue Growth End (upwards limited to initial revenue growth)",
     min_value=0.0,
-    max_value=mu_revenue_growth_percent,
-    value=1/2 * mu_revenue_growth_percent,
+    max_value=mu_revenue_growth_percent, #this is set to the initial company growth rate as companies slow down their growth as they mature.
+    value=1/2 * mu_revenue_growth_percent, #set to half of max to make sure it is within the bounds to avoid value errors
     step=0.1,
     format="%.1f%%")
 
@@ -528,7 +557,7 @@ st.write("")
 st.write("We draw from a normal distribution, with mean and standard deviation")
 mu_wacc_percent = st.slider(
     "Your expected WACC",
-    min_value=0.1,
+    min_value=0.1, #obviously such a low value does not make much sense unless there are massivley negative IR, but we want to give the user flexability. However it needs to be above 0 for technical reasons
     max_value=100.0,
     value=15.0,
     step=0.1,
@@ -539,8 +568,8 @@ mu_wacc_percent = st.slider(
 sigma_wacc_percent = st.slider(
     "Your expected Standard Deviation of WACC",
     min_value=0.1,
-    max_value=1/3*mu_wacc_percent,
-    value=1/6*mu_wacc_percent,
+    max_value=1/3*mu_wacc_percent, #we set for all STD the max to 1/3 mu because 3*STD captures 99.7% of the curve so 99.87% of draws will be positive, ensuring that we get resonable values for growth and wacc
+    value=1/6*mu_wacc_percent, #set to half of max to make sure it is within the bounds to avoid value errors
     step=0.1,
     format="%.1f%%"
 )
@@ -548,10 +577,11 @@ st.write("")
 st.write("")
 st.write("")
 st.write("The terminal value of WACC is being drawn from a triangular distribution")
+
 mu_wacc_end_percent = st.slider(
     "Your expected terminal value (upwards limited by inital WACC value and lower limited by terminal revenue growth)",
-    min_value=mu_revenue_end_percent,
-    max_value=mu_wacc_percent,
+    min_value=mu_revenue_end_percent, #needs to be bigger then growth for TV. Here we allow equal, but this special case of k = g is handled in the parameters for the draw
+    max_value=mu_wacc_percent, #needs to be smaller or equal to WACC from start. Usually this is lower as companies use more Debt when they mature, which lowers CoC
     value=8.4,
     step=0.1,
     format="%.1f%%",
@@ -559,13 +589,13 @@ mu_wacc_end_percent = st.slider(
 )
 
 st.divider()
+
 #Operating Margin (Triangle)
 st.subheader("Operating Margin")
 st.write("The Target Operating Margin is a company's goal for operating profit as a percentage of revenue, reflecting its desired efficiency and profitability from core operations. A higher target margin typically indicates better scalability and cost control, which can significantly increase the company's valuation by boosting projected future earnings.")
 st.write("We draw from a triangular distribution. The user is able to set a minimum and maximum for the distribution, but also a mode.")
-#l_limit = st.number_input("Lower Limit Operating Margin:", min_value=0.0, max_value=100.0, value=10.0, step=0.1, format="%.2f")
-#u_limit = st.number_input("Upper Limit Operating Margin:", min_value=l_limit, max_value=100.0, value=50.0, step=0.1, format="%.2f")
 
+#using a double point slider
 range_selection = st.slider(
     "Your expected range:",
     min_value=0.0,
@@ -573,14 +603,15 @@ range_selection = st.slider(
     value=(30.0, 40.0),  # Startbereich (von, bis)
     step=0.01
 )
+#unpacking the values from the slider
 l_limit = range_selection[0]
 u_limit = range_selection[1]
 
 mode_op_margin_percent = st.slider(
     "Your expected Operating Margin (used as mode of the distribution)",
-    min_value=l_limit,
-    max_value=u_limit,
-    value=(l_limit + u_limit)/2,
+    min_value=l_limit, #is set to lower limit specified before
+    max_value=u_limit, #is set to upper limit specified before
+    value=(l_limit + u_limit)/2, #this ensures that standard value is within the defined range
     step=0.1,
     format="%.1f%%",
     help = " If you get an error like left > mode or right < mode, ensure that this value is in the range selected in the previous slider"
@@ -591,8 +622,8 @@ st.write("The sales to capital ratio links growth and reinvestment. It shows how
 st.caption("We draw from a triangular distribution based on company sectors (Software (System and Application): 1.71, Semiconductors: 1.10) Data per Damodaran). User is able to set the ratio.(https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/capex.html)", unsafe_allow_html=True)
 s_to_c = st.slider(
     "Your expected Sales to Cap (used as mode of the distribution)",
-    min_value=current_company["Industry STC"]-0.09,
-    max_value=current_company["Industry STC"]+0.09,
+    min_value=current_company["Industry STC"]-0.09, #value is adjusted based on selected company
+    max_value=current_company["Industry STC"]+0.09, #value is adjusted based on selected company
     value=current_company["Industry STC"],
     step=0.01,
 )
@@ -614,8 +645,8 @@ mu_roic_percent = st.slider(
 sigma_roic_percent = st.slider(
     "Your expected Standard Deviation",
     min_value=0.1,
-    max_value=1/2*mu_roic_percent,
-    value=1/6*mu_roic_percent,
+    max_value=1/3*mu_roic_percent, #we set for all STD the max to 1/3 mu because 3*STD captures 99.7% of the curve so 99.87% of draws will be positive, ensuring that we get resonable values for growth and wacc
+    value=1/6*mu_roic_percent, #set to half of max to make sure it is within the bounds to avoid value errors
     step=0.1,
     format="%.1f%%"
 )
@@ -649,19 +680,21 @@ u_limit = u_limit / 100
 #call functions to rerun script on change
 monte_carlo_EV()
 
-
+#plot the lists
 plot_histo_two(sample_wacc, sample_wacc_t, title="WACC")
 plot_histo(sample_opm, title="Operating Margin")
 
 plot_histo_two(sample_rev, sample_rev_t, title ="Revenue Growth")
 
+#get stockprice via ticker from company dict to call Yahoo Finance
 ticker = current_company["Ticker"]
 try:
     stock_price = yf.Ticker(ticker).history(period="1d")["Close"].iloc[-1]
 except Exception as e:
     st.markdown(f"### :green[Unable to connect to Yahoo Finance and show current stock price]")
     stock_price = 0
-    
+
+#We plot the histrogram, cutting out outliers at 2.5% (we only cut right tail, as we have no left tail due to >0 assumptions for many paramters)
 plot_histo(sorted(value_list)[:int(0.975*draws)], title="Share Value", price = stock_price)
 st.caption(f"The current stock data is provided by Yahoo Finance\n(https://finance.yahoo.com/quote/{ticker})", unsafe_allow_html=True)
 st.dataframe(get_quantiles_df())
